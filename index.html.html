@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AST蔵書データベース</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', sans-serif; background: #f5f4f0; color: #1a1a1a; min-height: 100vh; }
+
+  .top-bar { background: #1a1a1a; color: #fff; padding: 0 2rem; display: flex; align-items: center; height: 56px; gap: 1rem; }
+  .top-bar h1 { font-size: 16px; font-weight: 500; letter-spacing: 0.05em; }
+  .top-bar .updated { font-size: 12px; color: #888; margin-left: auto; }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  .stats { display: flex; gap: 12px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .stat { background: #fff; border: 1px solid #e8e6e0; border-radius: 10px; padding: 1rem 1.25rem; min-width: 120px; }
+  .stat .label { font-size: 11px; color: #888; margin-bottom: 4px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .stat .value { font-size: 28px; font-weight: 500; color: #1a1a1a; }
+
+  .controls { background: #fff; border: 1px solid #e8e6e0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; }
+  .search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .search-row input { flex: 1; padding: 10px 14px; font-size: 14px; border: 1px solid #e0ded8; border-radius: 8px; background: #fafaf8; color: #1a1a1a; outline: none; font-family: inherit; }
+  .search-row input:focus { border-color: #1a1a1a; background: #fff; }
+  .reload-btn { padding: 10px 18px; font-size: 13px; border: 1px solid #e0ded8; border-radius: 8px; background: #fff; color: #1a1a1a; cursor: pointer; font-family: inherit; white-space: nowrap; transition: background 0.15s; }
+  .reload-btn:hover { background: #f5f4f0; }
+
+  .filter-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .filter-row select { padding: 8px 12px; font-size: 13px; border: 1px solid #e0ded8; border-radius: 8px; background: #fafaf8; color: #1a1a1a; outline: none; cursor: pointer; font-family: inherit; }
+  .filter-row select:focus { border-color: #1a1a1a; }
+
+  .result-count { font-size: 13px; color: #888; margin-bottom: 1rem; }
+
+  .book-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+
+  .book-card { background: #fff; border: 1px solid #e8e6e0; border-radius: 12px; padding: 1.25rem; transition: border-color 0.15s, box-shadow 0.15s; }
+  .book-card:hover { border-color: #bbb; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+
+  .book-title { font-size: 15px; font-weight: 500; color: #1a1a1a; margin-bottom: 4px; line-height: 1.5; }
+  .book-author { font-size: 13px; color: #666; margin-bottom: 12px; }
+  .book-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tag { font-size: 11px; padding: 3px 9px; border-radius: 20px; font-weight: 500; }
+  .tag-law { background: #ddeeff; color: #1a4a7a; }
+  .tag-loc { background: #ddf2e8; color: #1a5c38; }
+  .tag-ok { background: #ddf2e8; color: #1a5c38; }
+  .tag-ng { background: #fde8e8; color: #7a1a1a; }
+  .tag-other { background: #f0efe8; color: #555; }
+  .tag-elec { background: #fff3dd; color: #7a4d00; }
+
+  .book-footer { display: flex; justify-content: space-between; align-items: flex-end; padding-top: 12px; border-top: 1px solid #f0ede8; margin-top: 4px; }
+  .book-info { font-size: 12px; color: #999; line-height: 1.7; }
+  .cover-link { font-size: 12px; color: #1a5a9a; text-decoration: none; }
+  .cover-link:hover { text-decoration: underline; }
+
+  .memo { font-size: 12px; color: #999; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0ede8; }
+
+  .state-msg { grid-column: 1 / -1; text-align: center; padding: 4rem 1rem; font-size: 15px; color: #888; }
+  .state-msg.error { color: #c0392b; }
+  .state-msg small { display: block; margin-top: 8px; font-size: 12px; color: #bbb; }
+
+  @media (max-width: 600px) {
+    .container { padding: 1rem; }
+    .book-grid { grid-template-columns: 1fr; }
+    .top-bar { padding: 0 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1>AST 蔵書データベース</h1>
+  <span class="updated" id="last-updated">読み込み中...</span>
+</div>
+
+<div class="container">
+  <div class="stats">
+    <div class="stat"><div class="label">総蔵書数</div><div class="value" id="total-count">-</div></div>
+    <div class="stat"><div class="label">法律分野数</div><div class="value" id="field-count">-</div></div>
+    <div class="stat"><div class="label">出版社数</div><div class="value" id="pub-count">-</div></div>
+  </div>
+
+  <div class="controls">
+    <div class="search-row">
+      <input type="text" id="search-input" placeholder="書名・著者・出版社で検索..." />
+      <button class="reload-btn" onclick="loadData()">↻ 更新</button>
+    </div>
+    <div class="filter-row">
+      <select id="f-law"><option value="">法律分野：すべて</option></select>
+      <select id="f-loc"><option value="">保管場所：すべて</option></select>
+      <select id="f-pub"><option value="">出版社：すべて</option></select>
+      <select id="f-sta"><option value="">ステータス：すべて</option></select>
+    </div>
+  </div>
+
+  <div class="result-count" id="result-count"></div>
+
+  <div id="book-grid" class="book-grid">
+    <div class="state-msg">データを読み込んでいます...</div>
+  </div>
+</div>
+
+<script>
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQXTQhFE0dabsmabIF7vuSwxGSO3DR2_poXaIhGisQK3JUNDRBOdYHHfv1U1ADp9K0wYNujHPx2-nuX/pub?output=csv';
+let allBooks = [];
+
+function parseLine(line) {
+  const vals = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"') { inQ = !inQ; }
+    else if (line[i] === ',' && !inQ) { vals.push(cur.replace(/^"|"$/g, '').trim()); cur = ''; }
+    else { cur += line[i]; }
+  }
+  vals.push(cur.replace(/^"|"$/g, '').trim());
+  return vals;
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = parseLine(lines[0]);
+  return lines.slice(1).map(line => {
+    const vals = parseLine(line);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = (vals[i] || '').trim(); });
+    return obj;
+  }).filter(b => b['書名'] && b['書名'].length > 0);
+}
+
+function formatDate(raw) {
+  const s = String(raw || '').replace(/\D/g, '');
+  if (s.length >= 6) return s.slice(0,4) + '年' + s.slice(4,6) + '月';
+  return raw || '';
+}
+
+function setFilter(id, books, key) {
+  const sel = document.getElementById(id);
+  const first = sel.options[0].outerHTML;
+  const vals = [...new Set(books.map(b => b[key]).filter(Boolean))].sort();
+  sel.innerHTML = first + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+}
+
+function renderBooks(books) {
+  document.getElementById('result-count').textContent = books.length + '件表示中';
+  const grid = document.getElementById('book-grid');
+  if (!books.length) {
+    grid.innerHTML = '<div class="state-msg">該当する書籍が見つかりませんでした</div>';
+    return;
+  }
+  grid.innerHTML = books.map(b => {
+    const sta = b['ステータス'] || '';
+    const staCls = sta.toUpperCase() === 'OK' ? 'tag-ok' : sta.toUpperCase() === 'NG' ? 'tag-ng' : 'tag-other';
+    const elec = b['電子サービス搭載'] && b['電子サービス搭載'] !== 'なし' ? '<span class="tag tag-elec">電子あり</span>' : '';
+    const cover = b['表紙URL'] ? `<a class="cover-link" href="${b['表紙URL']}" target="_blank">表紙を見る →</a>` : '';
+    const memo = b['メモ'] && b['メモ'] !== 'なし' && b['メモ'] !== '-' ? `<div class="memo">📝 ${b['メモ']}</div>` : '';
+    return `
+      <div class="book-card">
+        <div class="book-title">${b['書名']}</div>
+        <div class="book-author">${b['著者'] || ''}</div>
+        <div class="book-tags">
+          ${b['法律分野'] ? `<span class="tag tag-law">${b['法律分野']}</span>` : ''}
+          ${b['保管場所'] ? `<span class="tag tag-loc">${b['保管場所']}</span>` : ''}
+          ${sta ? `<span class="tag ${staCls}">${sta}</span>` : ''}
+          ${elec}
+        </div>
+        <div class="book-footer">
+          <div class="book-info">${b['出版社'] || ''}<br>${formatDate(b['発行年月日'])}</div>
+          ${cover}
+        </div>
+        ${memo}
+      </div>`;
+  }).join('');
+}
+
+function applyFilters() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const law = document.getElementById('f-law').value;
+  const loc = document.getElementById('f-loc').value;
+  const pub = document.getElementById('f-pub').value;
+  const sta = document.getElementById('f-sta').value;
+  renderBooks(allBooks.filter(b =>
+    (!q || ['書名','著者','出版社'].some(k => (b[k]||'').toLowerCase().includes(q))) &&
+    (!law || b['法律分野'] === law) &&
+    (!loc || b['保管場所'] === loc) &&
+    (!pub || b['出版社'] === pub) &&
+    (!sta || b['ステータス'] === sta)
+  ));
+}
+
+async function loadData() {
+  document.getElementById('book-grid').innerHTML = '<div class="state-msg">データを読み込んでいます...</div>';
+  document.getElementById('last-updated').textContent = '読み込み中...';
+  try {
+    const res = await fetch(CSV_URL + '&t=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    allBooks = parseCSV(text);
+    if (!allBooks.length) throw new Error('データが空です');
+    setFilter('f-law', allBooks, '法律分野');
+    setFilter('f-loc', allBooks, '保管場所');
+    setFilter('f-pub', allBooks, '出版社');
+    setFilter('f-sta', allBooks, 'ステータス');
+    document.getElementById('total-count').textContent = allBooks.length;
+    document.getElementById('field-count').textContent = new Set(allBooks.map(b=>b['法律分野']).filter(Boolean)).size;
+    document.getElementById('pub-count').textContent = new Set(allBooks.map(b=>b['出版社']).filter(Boolean)).size;
+    document.getElementById('last-updated').textContent = '最終更新：' + new Date().toLocaleString('ja-JP');
+    applyFilters();
+  } catch(e) {
+    document.getElementById('book-grid').innerHTML = `<div class="state-msg error">読み込みに失敗しました<small>${e.message}</small></div>`;
+    document.getElementById('last-updated').textContent = '読み込み失敗';
+  }
+}
+
+document.getElementById('search-input').addEventListener('input', applyFilters);
+['f-law','f-loc','f-pub','f-sta'].forEach(id =>
+  document.getElementById(id).addEventListener('change', applyFilters)
+);
+
+loadData();
+</script>
+</body>
+</html>
